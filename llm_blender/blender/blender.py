@@ -59,19 +59,19 @@ class Blender:
         self.ranker_config = ranker_config
         self.fuser_config = fuser_config
         self.blender_config = blender_config or BlenderConfig()
-        
+
         if self.ranker_config is None:
             logging.warning("No ranker config provided, no ranker loaded, please load ranker first through load_ranker()")
         else:
             ranker_path = self.ranker_config.load_checkpoint
             self.loadranker(ranker_path, **self.ranker_config.to_dict())
-        
+
         if self.fuser_config is None:
             logging.warning("No fuser config provided, no fuser loaded, please load fuser first through load_fuser()")
         else:
             fuser_path = self.fuser_config.model_name
             self.loadfuser(fuser_path, **self.fuser_config.to_dict())
-        
+
     def loadranker(self, ranker_path:str, device:str=None, **kwargs):
         """Load ranker from a path
             Supported rankers:
@@ -95,7 +95,7 @@ class Blender:
         """
         cache_dir = kwargs.pop("cache_dir", TRANSFORMERS_CACHE)
         cache_dir = Path(cache_dir)
-        
+
         if not os.path.exists(ranker_path):
             if not os.path.exists(cache_dir / ranker_path):
                 logging.warning(f"Checkpoint '{ranker_path}' does not exist")
@@ -111,7 +111,7 @@ class Blender:
                     logging.warning(f"Erorr: {e}")
             else:
                 ranker_path = cache_dir / ranker_path
-        
+
         # load ranker config from ranker_path
         ranker_path = Path(ranker_path)
         if os.path.exists(ranker_path / "config.json"):
@@ -134,8 +134,8 @@ class Blender:
             setattr(self.ranker_config, k, v)
         if ranker_config.model_name is None:
             ranker_config.model_name = str(ranker_path)
-    
-        # for other rms    
+
+        # for other rms
         if ranker_config.ranker_type not in ["pairranker", "summareranker", "simcls"]:
             # tell from the ranker_path
             if ranker_config.model_name.endswith("OpenAssistant/reward-model-deberta-v3-large-v2"):
@@ -150,9 +150,9 @@ class Blender:
             else:
                 raise ValueError(f"reward model type {ranker_config.model_name} not supported")
             ranker_config.load_checkpoint = None
-            
+
         self.ranker_config.device = device or self.ranker_config.device or self.blender_config.device
-    
+
         self.ranker, self.ranker_tokenizer, self.ranker_collator = load_ranker(ranker_config)
         device = self.ranker_config.device
         if device in ["cuda", "mps"] and ranker_config.fp16:
@@ -162,7 +162,7 @@ class Blender:
         self.ranker = self.ranker.to(device)
         self.ranker.eval()
         print("Successfully loaded ranker from ", ranker_path)
-        
+
     def loadfuser(self, fuser_path:str, device:str=None, **kwargs):
         """Load fuser from a path
 
@@ -182,7 +182,7 @@ class Blender:
         self.fuser_config.device = device or self.fuser_config.device or self.blender_config.device
         self.fuser, self.fuser_tokenizer = load_fuser(self.fuser_config)
         self.fuser.eval()
-    
+
     def rank(
         self, 
         inputs:List[str], 
@@ -242,7 +242,7 @@ class Blender:
             return scores
         else:
             return get_ranks_from_scores(scores)
-    
+
     def rank_with_ref(
         self, 
         inputs:List[str], 
@@ -275,7 +275,7 @@ class Blender:
             or 
             scores List[List[float]]: Scores of candidates for each input. Higher is better. scores[i][j] is the score of the j-th candidate for the i-th input
         """
-        
+
         if ref_candidates is None:
             if ref_mode == "longest":
                 ref_candidates = [max(_candidates, key=len) for _candidates in candidates]
@@ -292,7 +292,7 @@ class Blender:
         else:
             assert len(ref_candidates) == len(inputs), "Number of ref_candidates must be the same as inputs"
             assert all([isinstance(x, str) for x in ref_candidates]), "Each ref_candidate must be a string"
-        
+
         num_candidates_per_input = len(candidates[0])
         assert all([len(c) == num_candidates_per_input for c in candidates]), "Number of candidates for each input must be the same"
 
@@ -313,7 +313,7 @@ class Blender:
         else:
             ranks = get_ranks_from_scores(scores)
             return ranks
-    
+
     def compare_conversations(
         self,
         conversations_a:List[List[dict]],
@@ -366,7 +366,7 @@ class Blender:
         for c_a, c_b in zip(conversations_a, conversations_b):
             assert len(c_a) == len(c_b), "Number of turns in each conversation must be the same"
             assert all([c_a[i]['content'] == c_b[i]['content'] for i in range(0, len(c_a), 2)]), "USER turns must be the same"
-        
+
         instructions = ["Finish the following coversation in each i-th turn by filling in <Response i> with your response."] * len(conversations_a)
         inputs = [
             "\n".join([
@@ -385,7 +385,7 @@ class Blender:
             ]) for x in conversations_b
         ]
         return self.compare(inputs, cand1_texts, cand2_texts, instructions, batch_size=batch_size, return_logits=return_logits, mode=mode)
-    
+
     def get_best_of_n(
         self, 
         inputs:List[str], 
@@ -456,7 +456,7 @@ class Blender:
             else:
                 best_candidates = get_topk_candidates_from_ranks(ranks, candidates, top_k=None)
         return best_candidates
-    
+
     def get_worst_of_n(
         self, 
         inputs:List[str], 
@@ -528,8 +528,7 @@ class Blender:
             else:
                 worst_candidates = get_topk_candidates_from_ranks(ranks, candidates, top_k=None)
         return worst_candidates
-    
-    
+
     def compare(self, 
         inputs: List[str], 
         candidates_A: List[str], 
@@ -573,7 +572,7 @@ class Blender:
         assert len(candidates_A) == len(candidates_B), "Number of candidates_A and candidates_B must be the same"
         assert len(inputs) == len(candidates_A), "Number of inputs and candidates must be the same"
         candidates = [[a, b] for a, b in zip(candidates_A, candidates_B)]
-        
+
         if mode in ["[A,B]", "[B,A]"] and self.ranker_config.ranker_type == "pairranker":
             if mode == "[B,A]":
                 candidates = [[b, a] for a, b in zip(candidates_A, candidates_B)]
@@ -642,7 +641,7 @@ class Blender:
         }
         if generate_kwargs:
             generate_params.update(generate_kwargs)
-            
+
         generations = []
         for batch in tqdm(iter(dataloader), desc="Fusing candidates", disable=not self.blender_config.use_tqdm):
             batch = {k: v.to(self.fuser_config.device) for k, v in batch.items()}
@@ -653,7 +652,7 @@ class Blender:
             _generations = self.fuser_tokenizer.batch_decode(output_ids, skip_special_tokens=True)
             generations.extend(_generations)
         return generations
-    
+
     def n_generate(
         self,
         model, # Union[transformers.PreTrainedModel, vllm.LLM]
@@ -716,12 +715,22 @@ class Blender:
         generate_kwargs["num_return_sequences"] = n
         generate_kwargs["output_scores"] = True
         generate_kwargs['return_dict_in_generate'] = True
-        
+
         prompts = [x + "\n" + y for x, y in zip(instructions, inputs)] if instructions is not None else inputs
         sampled_candidates: List[List[str]] = [] # sampled generations for each input [bz, n]
         if is_vllm_imported and isinstance(model, vllm.LLM):
             sampling_params = vllm.SamplingParams(
-                n=n, max_tokens=generate_kwargs.get("max_tokens", generate_kwargs.get("max_new_tokens", generate_kwargs.get("max_length", model_tokenizer.model_max_length))),
+                n=n,
+                max_tokens=generate_kwargs.get(
+                    "max_tokens",
+                    generate_kwargs.get(
+                        "max_new_tokens",
+                        generate_kwargs.get(
+                            "max_length", model_tokenizer.model_max_length
+                        ),
+                    ),
+                ),
+                
             )
             for k, v in generate_kwargs.items():
                 if hasattr(sampling_params, k):
@@ -733,7 +742,7 @@ class Blender:
         else:
             for i in tqdm(range(0, len(prompts), batch_size), desc="Sampling generations"):
                 bz_start, bz_end = i, min(i+batch_size, len(inputs))
-                
+
                 bz_prompts = prompts[bz_start: bz_end]
                 bz_encodings = model_tokenizer(bz_prompts, return_tensors="pt", padding=True, truncation=True)
                 bz_encodings = {k: v.to(model.device) for k, v in bz_encodings.items()}
@@ -805,12 +814,12 @@ class Blender:
         """
         sampled_candidates = self.n_generate(model, model_tokenizer, inputs, 
             instructions=instructions, n=n, sampling_mode=sampling_mode, batch_size=batch_size, **generate_kwargs)
-        
+
         best_of_n_outputs = self.get_best_of_n(inputs, sampled_candidates, 
             instructions=instructions, batch_size=min(batch_size, 32),
             pairrm_cmp_type=pairrm_cmp_type, return_all=return_all)
         return best_of_n_outputs 
-    
+
     def rank_and_fuse(self, inputs:List[str], candidates:List[List[str]], instructions:List[str]=None, return_scores=False, batch_size=4, top_k=3, **generate_kwargs):
         """Rank the candidates using ranker and fuse the top-k candidates with genfuser
         Args:
@@ -832,5 +841,3 @@ class Blender:
             topk_candidates = get_topk_candidates_from_ranks(ranks_or_scores, candidates, top_k=top_k)
         fused_generations = self.fuse(inputs, topk_candidates, instructions=instructions, batch_size=batch_size, **generate_kwargs)
         return fused_generations, ranks_or_scores
-
-    
